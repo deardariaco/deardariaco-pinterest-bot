@@ -1,74 +1,115 @@
 # Instagram auto-poster setup
 
-This posts real feed photos to Instagram via Meta's official Graph API - the
-same category of setup you already did for the Pinterest bot (a token +
-GitHub Actions secrets), just for Instagram instead. Meta Business Suite
-does not support bulk-scheduling image posts (only Reels), which is why this
-goes through the API directly.
+This posts real feed photos to Instagram via Meta's official **Instagram API
+with Instagram Login** - a token + GitHub Actions secrets, same category of
+setup you already did for the Pinterest bot. Meta Business Suite does not
+support bulk-scheduling image posts (only Reels), which is why this goes
+through the API directly. This flow does **not** require a linked Facebook
+Page or a Facebook account at all - you authorize with your Instagram login
+only.
 
 ## 1. Make sure your Instagram account qualifies
 
-- The account must be a **Business** or **Creator** account (not Personal).
-  Instagram app -> Settings -> Account type and tools -> switch if needed.
-- It must be **linked to a Facebook Page** you administer. Instagram app ->
-  Settings -> Linked accounts -> Facebook (or via the Facebook Page's
-  Settings -> Linked accounts).
+The account must be a **Business** or **Creator** account (not Personal).
+In the Instagram app: Settings -> Account type and tools -> switch if
+needed. That's the only account-side requirement - no Facebook Page needed.
 
-## 2. Create a Meta App
+## 2. Create a Meta App and add the Instagram product
 
-1. Go to https://developers.facebook.com/apps and create an app -> type
-   "Other" -> "Business".
-2. In the app dashboard, add the **Instagram Graph API** product.
-3. Under App Roles -> Roles, make sure your own Facebook account is an Admin
-   (it usually is by default since you created the app).
+1. Go to https://developers.facebook.com/apps (you still need a free Meta
+   developer account to register an app, but nothing here touches Facebook
+   Pages or your personal Facebook profile beyond logging in to create it).
+2. Create an app -> type "Other" -> "Business" -> name it anything (e.g.
+   "DearDariaCo IG Bot").
+3. In the app dashboard sidebar, click **Add Product**, find **Instagram**,
+   click **Set Up**.
+4. In the Instagram product's settings, choose the **Instagram Business
+   Login** setup (as opposed to "Business Login for Instagram via
+   Facebook"). This page shows an **Instagram App ID** and **Instagram App
+   Secret** - copy both, you'll need them below (different from any
+   Facebook App ID/Secret shown elsewhere in the dashboard).
+5. Add a placeholder **OAuth redirect URI** in that same settings page -
+   any HTTPS URL you control works, even one that just 404s, e.g.
+   `https://github.com/deardariaco` - you only need it so Instagram has
+   somewhere to redirect to; you'll read the result out of the browser's
+   address bar, not from that page actually loading anything useful.
+6. Under **Roles -> Instagram testers**, add your own Instagram account as
+   a tester (this app starts in Development mode, so only added testers can
+   authorize it). Then open the Instagram app -> Settings -> Apps and
+   websites -> Tester invites, and accept the invite.
 
-## 3. Get your Instagram Business Account ID and an access token
+## 3. Authorize and get a short-lived token
 
-Easiest path is the Graph API Explorer:
-
-1. Go to https://developers.facebook.com/tools/explorer
-2. Pick your app in the top-right dropdown.
-3. Click "Generate Access Token" and grant these permissions when prompted:
-   `instagram_basic`, `instagram_content_publish`, `pages_show_list`,
-   `pages_read_engagement`.
-4. Run `GET /me/accounts` - find your Page in the results, note its `id`.
-5. Run `GET /<PAGE_ID>?fields=instagram_business_account` - this returns
-   your Instagram Business Account ID. That's your `IG_USER_ID`.
-
-The token Graph API Explorer gives you is short-lived (~1 hour). For the
-bot to run unattended for a month, exchange it for a long-lived token
-(~60 days):
+Build this URL, filling in your Instagram App ID and the redirect URI from
+step 2 (URL-encode the redirect URI):
 
 ```
-GET https://graph.facebook.com/v21.0/oauth/access_token
-    ?grant_type=fb_exchange_token
-    &client_id=<YOUR_APP_ID>
-    &client_secret=<YOUR_APP_SECRET>
-    &fb_exchange_token=<SHORT_LIVED_TOKEN>
+https://www.instagram.com/oauth/authorize
+  ?client_id=<INSTAGRAM_APP_ID>
+  &redirect_uri=<REDIRECT_URI>
+  &response_type=code
+  &scope=instagram_business_basic,instagram_business_content_publish
 ```
 
-Long-lived tokens still expire after ~60 days - you'll need to repeat this
-exchange periodically, or (better, for something running longer-term) set
-up a **System User token** in Meta Business Suite -> Business Settings ->
-System Users, which doesn't expire on the same clock. Either kind of token
-works as `IG_ACCESS_TOKEN`.
+Paste it into a browser, log in as the Instagram account (if not already),
+and approve. You'll land on your redirect URI with `?code=...#_` in the
+address bar - copy that `code` value (everything after `code=` and before
+the trailing `#_`).
 
-## 4. Add GitHub repo secrets
+Exchange the code for a short-lived access token:
+
+```
+POST https://api.instagram.com/oauth/access_token
+  client_id=<INSTAGRAM_APP_ID>
+  client_secret=<INSTAGRAM_APP_SECRET>
+  grant_type=authorization_code
+  redirect_uri=<REDIRECT_URI>
+  code=<CODE_FROM_ABOVE>
+```
+
+(e.g. via curl: `curl -X POST https://api.instagram.com/oauth/access_token -F client_id=... -F client_secret=... -F grant_type=authorization_code -F redirect_uri=... -F code=...`)
+
+The response has `access_token` (short-lived, ~1 hour) and `user_id`.
+
+## 4. Exchange for a long-lived token (~60 days) and get IG_USER_ID
+
+```
+GET https://graph.instagram.com/access_token
+    ?grant_type=ig_exchange_token
+    &client_secret=<INSTAGRAM_APP_SECRET>
+    &access_token=<SHORT_LIVED_TOKEN>
+```
+
+The `access_token` in this response is your **`IG_ACCESS_TOKEN`**. It lasts
+~60 days and can be refreshed before expiry by calling
+`GET https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=<CURRENT_TOKEN>`
+periodically (worth doing every ~50 days if you want this running past two
+months).
+
+Confirm the account and get your numeric ID:
+
+```
+GET https://graph.instagram.com/v21.0/me?fields=user_id,username&access_token=<LONG_LIVED_TOKEN>
+```
+
+The `user_id` in that response is your **`IG_USER_ID`**.
+
+## 5. Add GitHub repo secrets
 
 In the repo: Settings -> Secrets and variables -> Actions -> New repository
 secret.
 
 | Secret name | Value |
 |---|---|
-| `IG_ACCESS_TOKEN` | the token from step 3 |
-| `IG_USER_ID` | the Instagram Business Account ID from step 3 |
+| `IG_ACCESS_TOKEN` | the long-lived token from step 4 |
+| `IG_USER_ID` | the numeric user_id from step 4 |
 
 (`IMAGE_BASE_URL` is not a secret here - the workflow builds it automatically
 from the public repo's raw GitHub URL, since `images_instagram/` is already
 public in this repo, same trick the Pinterest bot's `IMAGE_BASE_URL`
 secret uses.)
 
-## 5. Test before trusting it
+## 6. Test before trusting it
 
 From your machine, with the repo cloned:
 
@@ -84,7 +125,7 @@ You can also trigger the GitHub Actions workflow manually: repo -> Actions
 tab -> "Daily Instagram Posts" -> "Run workflow", instead of waiting for
 the cron schedule.
 
-## 6. Schedule
+## 7. Schedule
 
 `.github/workflows/daily_instagram_posts.yml` runs 3 times a day (~9am,
 1pm, 6pm US Eastern by default - edit the `cron:` lines if you're in a

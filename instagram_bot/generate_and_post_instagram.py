@@ -2,7 +2,10 @@
 DearDariaCo Instagram auto-poster.
 
 Mirrors pinterest_bot/generate_and_post_v2.py, but posts single-image feed
-posts to Instagram via the Graph API (Content Publishing) instead of pins.
+posts to Instagram via the Instagram API with Instagram Login (Content
+Publishing) instead of pins. This flow does not require a linked Facebook
+Page - only that the Instagram account itself is a Business or Creator
+account, authorized directly through Instagram's own OAuth.
 
 Content source: images live in images_instagram/, named
   <suite-slug>_<product_type>_<numeric-id>_<photo-index>.jpg
@@ -15,9 +18,11 @@ data rather than tied to one specific Etsy listing, because Instagram feed
 captions don't support clickable links anyway (unlike Pinterest pins).
 
 Environment variables:
-  IG_ACCESS_TOKEN   Long-lived Page/System-User access token with
-                     instagram_basic + instagram_content_publish
-  IG_USER_ID        Instagram Business Account id (not the @handle)
+  IG_ACCESS_TOKEN   Long-lived Instagram User access token (from Instagram
+                     Login, scopes instagram_business_basic +
+                     instagram_business_content_publish)
+  IG_USER_ID        Instagram user_id returned by GET graph.instagram.com/me
+                     (not the @handle)
   IMAGE_BASE_URL    Public base URL where images_instagram/ is served from
                      (e.g. https://raw.githubusercontent.com/<owner>/<repo>/main/images_instagram)
   POSTS_PER_RUN     How many posts to publish this run (default 1)
@@ -40,7 +45,7 @@ CONTENT_BANK_PATH = REPO_ROOT / "pinterest_bot" / "content_bank_v2.json"
 IMAGES_DIR = REPO_ROOT / "images_instagram"
 LOG_PATH = BASE_DIR / "posted_log.json"
 
-GRAPH_API_BASE = "https://graph.facebook.com/v21.0"
+GRAPH_API_BASE = "https://graph.instagram.com/v21.0"
 
 POSTS_PER_RUN = int(os.environ.get("POSTS_PER_RUN", "1"))
 DRY_RUN = os.environ.get("DRY_RUN", "0") == "1"
