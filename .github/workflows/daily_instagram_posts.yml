@@ -1,0 +1,43 @@
+name: Daily Instagram Posts
+
+on:
+  schedule:
+    # Times are UTC. As written this is roughly 9am / 1pm / 6pm US Eastern
+    # (UTC-4 during daylight saving) - adjust the hours below to your timezone.
+    - cron: "0 13 * * *"   # ~9:00 AM ET
+    - cron: "0 17 * * *"   # ~1:00 PM ET
+    - cron: "0 22 * * *"   # ~6:00 PM ET
+  workflow_dispatch: {}  # lets you also trigger it manually from the Actions tab
+
+jobs:
+  post-to-instagram:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run poster
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IMAGE_BASE_URL: "https://raw.githubusercontent.com/${{ github.repository }}/main/images_instagram"
+          POSTS_PER_RUN: "1"
+          DRY_RUN: "0"
+        run: python instagram_bot/generate_and_post_instagram.py
+
+      - name: Commit updated posting log
+        run: |
+          git config user.name "instagram-bot"
+          git config user.email "actions@github.com"
+          touch instagram_bot/posted_log.json
+          git add instagram_bot/posted_log.json
+          git diff --staged --quiet || git commit -m "Update Instagram posted log [skip ci]"
+          git push
